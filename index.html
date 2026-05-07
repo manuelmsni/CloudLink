@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>CloudLink</title>
+
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "@codemirror/state":          "https://esm.sh/@codemirror/state@6.4.1",
+      "@codemirror/view":           "https://esm.sh/@codemirror/view@6.26.3?external=@codemirror/state",
+      "@codemirror/commands":       "https://esm.sh/@codemirror/commands@6.5.0?external=@codemirror/state,@codemirror/view",
+      "@codemirror/language":       "https://esm.sh/@codemirror/language@6.10.1?external=@codemirror/state,@codemirror/view",
+      "@codemirror/lang-markdown":  "https://esm.sh/@codemirror/lang-markdown@6.2.5?external=@codemirror/state,@codemirror/view,@codemirror/language,@codemirror/commands",
+      "@codemirror/search":         "https://esm.sh/@codemirror/search@6.5.6?external=@codemirror/state,@codemirror/view"
+    }
+  }
+  </script>
+
+  <style>
+    #app-launcher {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      text-align: center;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin: 0;
+      background: linear-gradient(135deg, #0f0f1a 0%, #1a1b2e 100%);
+      color: #e5e7eb;
+      -webkit-font-smoothing: antialiased;
+      transition: background 0.3s, color 0.3s;
+    }
+
+    #app-launcher[data-theme="light"] {
+      background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ef 100%);
+      color: #1a1a2e;
+    }
+
+    #app-launcher .launcher-card {
+      background: #23242c;
+      border-radius: 16px;
+      padding: 48px 40px 40px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      max-width: 480px;
+      width: 100%;
+      position: relative;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+
+    #app-launcher[data-theme="light"] .launcher-card {
+      background: #fff;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+    }
+
+    #app-launcher .theme-toggle {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, transform 0.4s;
+      color: #e5e7eb;
+    }
+
+    #app-launcher .theme-toggle:hover {
+      background: rgba(255,255,255,0.08);
+    }
+
+    #app-launcher[data-theme="light"] .theme-toggle {
+      color: #1a1a2e;
+    }
+
+    #app-launcher[data-theme="light"] .theme-toggle:hover {
+      background: rgba(0,0,0,0.06);
+    }
+
+    #app-launcher .theme-toggle:active {
+      transform: scale(0.9);
+    }
+
+    #app-launcher .launcher-logo {
+      font-size: 48px;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    #app-launcher h1 {
+      font-size: 22px;
+      font-weight: 700;
+      margin: 0 0 4px;
+      color: #e5e7eb;
+      letter-spacing: -0.02em;
+      transition: color 0.3s;
+    }
+
+    #app-launcher[data-theme="light"] h1 {
+      color: #1a1a2e;
+    }
+
+    #app-launcher .launcher-sub {
+      font-size: 14px;
+      color: #9ca3af;
+      margin: 0 0 28px;
+    }
+
+    #app-launcher[data-theme="light"] .launcher-sub {
+      color: #6b7280;
+    }
+
+    #app-launcher #loginBtn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 28px;
+      font-size: 15px;
+      font-weight: 600;
+      font-family: inherit;
+      color: #fff;
+      background: #7c3aed;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    #app-launcher #loginBtn:hover {
+      background: #6d28d9;
+      transform: translateY(-1px);
+    }
+
+    #app-launcher #loginBtn:active {
+      transform: translateY(0);
+    }
+
+    #app-launcher #login-section {
+      transition: opacity 0.25s;
+    }
+
+    #app-launcher #login-section--hidden {
+      display: none;
+    }
+
+    #app-launcher #app {
+      margin-top: 24px;
+      text-align: left;
+    }
+
+    #app-launcher #app .app-status {
+      font-size: 14px;
+      color: #9ca3af;
+      margin: 8px 0;
+      text-align: center;
+    }
+
+    #app-launcher[data-theme="light"] #app .app-status {
+      color: #6b7280;
+    }
+
+    #app-launcher #app .app-status--error {
+      color: #f87171 !important;
+      font-weight: 500;
+    }
+
+    #app-launcher #app .app-welcome {
+      font-size: 13px;
+      color: #9ca3af;
+      margin: 0 0 16px;
+      text-align: center;
+    }
+
+    #app-launcher[data-theme="light"] #app .app-welcome {
+      color: #6b7280;
+    }
+
+    #app-launcher #app .app-list-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #9ca3af;
+      margin: 0 0 12px;
+      text-align: center;
+    }
+
+    #app-launcher #app .app-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 16px;
+      margin: 8px 0;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s, transform 0.08s;
+    }
+
+    #app-launcher[data-theme="light"] #app .app-card {
+      background: #f8f9fa;
+      border-color: #e5e7eb;
+    }
+
+    #app-launcher #app .app-card:hover {
+      background: rgba(124,58,237,0.08);
+      border-color: #7c3aed;
+      transform: translateX(2px);
+    }
+
+    #app-launcher[data-theme="light"] #app .app-card:hover {
+      background: #f0f1f3;
+    }
+
+    #app-launcher #app .app-card:active {
+      transform: translateX(0);
+    }
+
+    #app-launcher #app .app-card-icon {
+      font-size: 28px;
+      flex-shrink: 0;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.06);
+      border-radius: 10px;
+    }
+
+    #app-launcher[data-theme="light"] #app .app-card-icon {
+      background: #e5e7eb;
+    }
+
+    #app-launcher #app .app-card-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    #app-launcher #app .app-card-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e5e7eb;
+    }
+
+    #app-launcher[data-theme="light"] #app .app-card-name {
+      color: #1a1a2e;
+    }
+
+    #app-launcher #app .app-card-desc {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 2px;
+      line-height: 1.4;
+    }
+
+    #app-launcher[data-theme="light"] #app .app-card-desc {
+      color: #6b7280;
+    }
+  </style>
+
+</head>
+<body style="margin:0">
+
+  <div id="app-launcher" data-theme="dark">
+    <div class="launcher-card">
+
+      <button class="theme-toggle" id="themeToggle" title="Cambiar tema">☀️</button>
+
+      <div id="login-section">
+        <div class="launcher-logo">🔐</div>
+        <h1>CloudLink</h1>
+        <p class="launcher-sub">Inicia sesión para acceder a tus aplicaciones</p>
+        <button id="loginBtn">Iniciar sesión con Google</button>
+      </div>
+
+      <div id="app"></div>
+
+    </div>
+  </div>
+
+<script>
+const CLIENT_ID = "67534313330-c6tea2ap05e76i5bh794hamab3pme1n9.apps.googleusercontent.com";
+const SCOPES = "https://www.googleapis.com/auth/drive openid profile email";
+
+const CSV_FILE_ID = "1zs4FIPAYGhqU8DOO4HeLXxYDFnqV90in";
+
+let tokenClient;
+let accessToken = null;
+
+const app = document.getElementById("app");
+const launcher = document.getElementById("app-launcher");
+const loginSection = document.getElementById("login-section");
+
+// =========================
+// THEME TOGGLE
+// =========================
+document.getElementById("themeToggle").onclick = () => {
+  const isDark = launcher.getAttribute("data-theme") !== "light";
+  launcher.setAttribute("data-theme", isDark ? "light" : "dark");
+  document.getElementById("themeToggle").textContent = isDark ? "🌙" : "☀️";
+};
+
+// =========================
+// INIT
+// =========================
+window.onload = () => {
+
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: async (tokenResponse) => {
+      accessToken = tokenResponse.access_token;
+      window.__launcher = {
+        accessToken,
+        clientId: CLIENT_ID,
+        tokenExpiresAt: Date.now() + (tokenResponse.expires_in - 60) * 1000,
+      };
+      startApp();
+    }
+  });
+
+  document.getElementById("loginBtn").onclick = () => {
+    tokenClient.requestAccessToken();
+  };
+};
+
+// =========================
+// MAIN FLOW
+// =========================
+async function startApp() {
+  loginSection.style.display = "none";
+
+  renderStatus("Obteniendo usuario...");
+
+  const user = await getUserInfo();
+
+  try {
+    const bundles = await fetchCSV();
+
+    // Verificar permisos de cada bundle antes de mostrar
+    renderStatus("Verificando acceso...");
+    const results = await Promise.allSettled(bundles.map(b =>
+      fetch("https://www.googleapis.com/drive/v3/files/" + b.fileId + "?fields=id", {
+        headers: { Authorization: "Bearer " + accessToken }
+      })
+    ));
+    const accesibles = bundles.filter((_, i) => results[i].status === "fulfilled" && results[i].value.ok);
+
+    if (accesibles.length === 0) {
+      renderError("No tienes acceso a ninguna aplicación");
+      return;
+    }
+    renderBundles(accesibles, user);
+
+  } catch (err) {
+    renderError("Usuario no registrado en La Alfa");
+  }
+}
+
+// =========================
+// USER INFO
+// =========================
+async function getUserInfo() {
+  const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+    headers: { Authorization: "Bearer " + accessToken }
+  });
+  return await res.json();
+}
+
+// =========================
+// FETCH CSV FROM DRIVE
+// =========================
+async function fetchCSV() {
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${CSV_FILE_ID}?alt=media`,
+    {
+      headers: { Authorization: "Bearer " + accessToken }
+    }
+  );
+
+  if (res.status === 403) throw new Error("NO_PERMISSION");
+  if (!res.ok) throw new Error("ERROR");
+
+  const text = await res.text();
+  return parseCSV(text);
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split("\n");
+
+  return lines.slice(1).map(line => {
+    const [name, fileId, icon, description] = line.split(",");
+    return { name, fileId, icon: icon || "�", description: description || "" };
+  });
+}
+
+// =========================
+// UI
+// =========================
+function renderStatus(msg) {
+  app.innerHTML = "<p class='app-status'>" + msg + "</p>";
+}
+
+function renderError(msg) {
+  app.innerHTML = "<p class='app-status app-status--error'>" + msg + "</p>";
+}
+
+function renderBundles(bundles, user) {
+  const welcome = user ? "<p class='app-welcome'>Bienvenido, " + (user.name || user.email || "Usuario") + "</p>" : "";
+  app.innerHTML = welcome + "<p class='app-list-title'>Tus aplicaciones</p>";
+
+  bundles.forEach(b => {
+    const card = document.createElement("div");
+    card.className = "app-card";
+
+    card.innerHTML =
+      "<div class='app-card-icon'>" + (b.icon || "�") + "</div>" +
+      "<div class='app-card-info'>" +
+        "<div class='app-card-name'>" + b.name + "</div>" +
+        "<div class='app-card-desc'>" + (b.description || "") + "</div>" +
+      "</div>";
+
+    card.onclick = () => loadBundle(b.fileId);
+
+    app.appendChild(card);
+  });
+}
+
+// =========================
+// LOAD BUNDLE FROM DRIVE
+// =========================
+async function loadBundle(fileId) {
+  const isDark = launcher.getAttribute("data-theme") !== "light";
+  document.body.innerHTML = "<div style='display:flex;align-items:center;justify-content:center;min-height:100vh;background:" + (isDark ? "#0f0f1a" : "#f5f7fa") + ";margin:0'><p style='font-family:system-ui;color:" + (isDark ? "#9ca3af" : "#6b7280") + "'>Cargando...</p></div>";
+
+  // 0. Propagar Client ID a CloudVault para que la reconexión OAuth
+  //    funcione cuando caduque el token del launcher. CloudVault lee
+  //    localStorage.getItem("cv.drive.clientId") en su constructor.
+  try { localStorage.setItem("cv.drive.clientId", CLIENT_ID); } catch {}
+
+  // 1. Descargar el bundle de Drive
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    { headers: { Authorization: "Bearer " + accessToken } }
+  );
+  const code = await res.text();
+
+  // 2. Cargarlo como módulo via Blob URL — no como <script> clásico
+  const blob = new Blob([code], { type: "text/javascript" });
+  const url = URL.createObjectURL(blob);
+  const mod = await import(url);
+
+  // 3. Llamar a initApp exportada
+  await mod.initApp();
+}
+
+</script>
+
+</body>
+</html>
