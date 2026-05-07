@@ -294,7 +294,7 @@
 const CLIENT_ID = "67534313330-c6tea2ap05e76i5bh794hamab3pme1n9.apps.googleusercontent.com";
 const SCOPES = "https://www.googleapis.com/auth/drive openid profile email";
 
-const CSV_FILE_ID = "1zs4FIPAYGhqU8DOO4HeLXxYDFnqV90in";
+const CSV_FILE_ID = "16JMnnkNn6v9BD3lSBmyxXz-vStk8FpXfpXRwK2F696Y";
 
 let tokenClient;
 let accessToken = null;
@@ -384,7 +384,7 @@ async function getUserInfo() {
 // =========================
 async function fetchCSV() {
   const res = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${CSV_FILE_ID}?alt=media`,
+    `https://docs.google.com/spreadsheets/d/${CSV_FILE_ID}/export?format=csv`,
     {
       headers: { Authorization: "Bearer " + accessToken }
     }
