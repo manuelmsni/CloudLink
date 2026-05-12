@@ -317,9 +317,9 @@
       <button class="theme-toggle" id="themeToggle" title="Cambiar tema">☀️</button>
 
       <div id="login-section">
-        <div class="launcher-logo">🔐</div>
+        <div class="launcher-logo">🌐</div>
         <h1>CloudLink</h1>
-        <p class="launcher-sub">Inicia sesión para acceder a tus aplicaciones</p>
+        <p class="launcher-sub">Inicia sesión para acceder a apps privadas</p>
         <button id="loginBtn">Iniciar sesión con Google</button>
       </div>
 
@@ -329,15 +329,6 @@
   </div>
 
 <script>
-(function() {
-  var redirect = sessionStorage.redirect;
-  delete sessionStorage.redirect;
-  if (redirect && redirect !== location.pathname + location.search) {
-    console.debug("[CloudLink] 404 redirect detected, restoring path", redirect);
-    history.replaceState(null, null, redirect);
-  }
-})();
-
 const CLIENT_ID = "67534313330-c6tea2ap05e76i5bh794hamab3pme1n9.apps.googleusercontent.com";
 const SCOPES = "https://www.googleapis.com/auth/drive openid profile email";
 
@@ -402,14 +393,16 @@ window.onload = () => {
 
   loadPublicCatalog();
 
-  window.addEventListener("popstate", () => {
+  function onNav() {
     const name = appNameFromPath();
-    console.debug("[CloudLink] popstate", { name, pathname: window.location.pathname });
+    console.debug("[CloudLink] onNav", { name, hash: window.location.hash, pathname: window.location.pathname });
     if (name) {
       const pub = publicApps.find(a => a.name === name);
       if (pub) loadPublicBundle(pub.name, pub.bundleurl);
     }
-  });
+  }
+  window.addEventListener("popstate", onNav);
+  window.addEventListener("hashchange", onNav);
 };
 
 async function loadPublicCatalog() {
@@ -547,20 +540,28 @@ function parseCSV(text) {
 // URL ROUTING
 // =========================
 function appNameFromPath() {
-  let p = window.location.pathname.replace(/\/+$/, "") || "/";
-  const raw = p;
+  var hash = window.location.hash.replace(/^#!?/, "").replace(/\/+$/, "");
+  if (hash) {
+    var parts = hash.split("/").filter(Boolean);
+    if (parts.length > 0) {
+      console.debug("[CloudLink] appNameFromPath (hash)", { hash, result: parts[0] });
+      return parts[0];
+    }
+  }
+  var p = window.location.pathname.replace(/\/+$/, "") || "/";
+  var raw = p;
   if (BASE_PATH && p.startsWith(BASE_PATH)) {
     p = p.slice(BASE_PATH.length) || "/";
   }
-  const result = (p === "/" || p === "/index.html") ? null : p.split("/").filter(Boolean)[0] || null;
-  console.debug("[CloudLink] appNameFromPath", { raw, BASE_PATH, stripped: p, result });
+  var result = (p === "/" || p === "/index.html") ? null : p.split("/").filter(Boolean)[0] || null;
+  console.debug("[CloudLink] appNameFromPath (pathname)", { raw, BASE_PATH, stripped: p, result });
   return result;
 }
 
 function updateUrlForApp(name) {
-  const u = new URL(window.location);
-  u.pathname = (BASE_PATH || "") + `/${name}/`;
-  console.debug("[CloudLink] updateUrlForApp", { name, pathname: u.pathname, href: u.href });
+  var u = new URL(window.location);
+  u.hash = "/" + name + "/";
+  console.debug("[CloudLink] updateUrlForApp", { name, href: u.href });
   window.history.pushState({ app: name }, "", u);
 }
 
@@ -686,7 +687,7 @@ function renderCombinedBundles(privateList, publicList, user) {
   if (publicList.length > 0) {
     const section = document.createElement("div");
     section.className = "public-section";
-    section.innerHTML = "<p class='public-title'>Apps públicas</p>";
+    section.innerHTML = "<p class='public-title'>Apps públicas (sin login)</p>";
     publicList.forEach(b => {
       const card = appCard(b.name, b.icon || b.icono, b.description, () => loadPublicBundle(b.name, b.bundleurl));
       section.appendChild(card);
@@ -697,7 +698,7 @@ function renderCombinedBundles(privateList, publicList, user) {
 
 function renderPublicAppList(publicList) {
   if (publicList.length === 0) return;
-  app.innerHTML = "<p class='app-list-title'>Apps públicas</p>";
+  app.innerHTML = "<p class='app-list-title'>Apps públicas (sin login)</p>";
   publicList.forEach(b => {
     app.appendChild(appCard(b.name, b.icon || b.icono, b.description, () => loadPublicBundle(b.name, b.bundleurl)));
   });
