@@ -329,6 +329,15 @@
   </div>
 
 <script>
+(function() {
+  var redirect = sessionStorage.redirect;
+  delete sessionStorage.redirect;
+  if (redirect && redirect !== location.pathname + location.search) {
+    console.debug("[CloudLink] 404 redirect detected, restoring path", redirect);
+    history.replaceState(null, null, redirect);
+  }
+})();
+
 const CLIENT_ID = "67534313330-c6tea2ap05e76i5bh794hamab3pme1n9.apps.googleusercontent.com";
 const SCOPES = "https://www.googleapis.com/auth/drive openid profile email";
 
@@ -360,8 +369,14 @@ document.getElementById("themeToggle").onclick = () => {
 // INIT
 // =========================
 window.onload = () => {
+  console.debug("[CloudLink] window.onload", {
+    pathname: window.location.pathname,
+    href: window.location.href,
+    BASE_PATH,
+  });
 
   if (!window.google?.accounts?.oauth2) {
+    console.debug("[CloudLink] GSI no disponible");
     return showInitError("Google Identity Services no se ha cargado. Recarga la página.");
   }
 
@@ -369,6 +384,7 @@ window.onload = () => {
     client_id: CLIENT_ID,
     scope: SCOPES,
     callback: async (tokenResponse) => {
+      console.debug("[CloudLink] OAuth callback", { expires_in: tokenResponse.expires_in });
       accessToken = tokenResponse.access_token;
       window.__launcher = {
         accessToken,
@@ -380,15 +396,15 @@ window.onload = () => {
   });
 
   document.getElementById("loginBtn").onclick = () => {
+    console.debug("[CloudLink] loginBtn clicked");
     tokenClient.requestAccessToken();
   };
 
-  // Cargar catálogo público y resolver URL
   loadPublicCatalog();
 
-  // popstate: navegación atrás/adelante
   window.addEventListener("popstate", () => {
     const name = appNameFromPath();
+    console.debug("[CloudLink] popstate", { name, pathname: window.location.pathname });
     if (name) {
       const pub = publicApps.find(a => a.name === name);
       if (pub) loadPublicBundle(pub.name, pub.bundleurl);
@@ -397,22 +413,28 @@ window.onload = () => {
 };
 
 async function loadPublicCatalog() {
+  console.debug("[CloudLink] loadPublicCatalog");
   const apps = await fetchPublicCSV();
   publicApps = apps;
+  console.debug("[CloudLink] publicApps", apps);
 
   const pathApp = appNameFromPath();
+  console.debug("[CloudLink] pathApp from URL", pathApp);
   if (pathApp) {
     const match = apps.find(a => a.name === pathApp);
     if (match) {
+      console.debug("[CloudLink] auto-loading public app", pathApp);
       loadPublicBundle(match.name, match.bundleurl);
       return;
     }
+    console.debug("[CloudLink] app not found in public catalog, flagging as pending", pathApp);
     setPendingApp(pathApp);
     renderStatus("App no encontrada. Inicia sesión para intentar con tu catálogo privado.");
     return;
   }
 
   if (apps.length > 0) {
+    console.debug("[CloudLink] rendering", apps.length, "public apps");
     renderPublicAppList(apps);
   }
 }
@@ -426,17 +448,19 @@ function showInitError(msg) {
 // MAIN FLOW
 // =========================
 async function startApp() {
+  console.debug("[CloudLink] startApp");
   loginSection.style.display = "none";
 
   renderStatus("Obteniendo usuario...");
 
   const user = await getUserInfo();
+  console.debug("[CloudLink] user", user);
   privateApps = [];
 
   try {
     const bundles = await fetchCSV();
+    console.debug("[CloudLink] CSV bundles", bundles);
 
-    // Verificar permisos de cada bundle antes de mostrar
     renderStatus("Verificando acceso...");
     const results = await Promise.allSettled(bundles.map(b =>
       fetch("https://www.googleapis.com/drive/v3/files/" + b.fileId + "?fields=id", {
@@ -445,17 +469,20 @@ async function startApp() {
     ));
     const accesibles = bundles.filter((_, i) => results[i].status === "fulfilled" && results[i].value.ok);
     privateApps = accesibles;
+    console.debug("[CloudLink] accessible bundles", accesibles.length, "/", bundles.length);
 
-    // Resolver app pendiente del URL
     const pending = getPendingApp();
+    console.debug("[CloudLink] pending app after login", pending);
     if (pending) {
       const match = accesibles.find(b => b.name === pending);
       if (match) {
+        console.debug("[CloudLink] resolving pending app", pending);
         clearPendingApp();
         updateUrlForApp(pending);
         loadBundle(match.fileId);
         return;
       }
+      console.debug("[CloudLink] pending app not in accessible list, clearing");
       clearPendingApp();
     }
 
@@ -467,6 +494,7 @@ async function startApp() {
     renderCombinedBundles(accesibles, publicApps, user);
 
   } catch (err) {
+    console.debug("[CloudLink] startApp catch", err.message);
     if (publicApps.length > 0) {
       renderCombinedBundles([], publicApps, user);
     } else {
@@ -489,6 +517,7 @@ async function getUserInfo() {
 // FETCH CSV FROM DRIVE
 // =========================
 async function fetchCSV() {
+  console.debug("[CloudLink] fetchCSV");
   const res = await fetch(
     `https://docs.google.com/spreadsheets/d/${CSV_FILE_ID}/export?format=csv`,
     {
@@ -496,10 +525,12 @@ async function fetchCSV() {
     }
   );
 
+  console.debug("[CloudLink] CSV fetch status", res.status);
   if (res.status === 403) throw new Error("NO_PERMISSION");
   if (!res.ok) throw new Error("ERROR");
 
   const text = await res.text();
+  console.debug("[CloudLink] CSV length", text.length);
   return parseCSV(text);
 }
 
@@ -517,44 +548,52 @@ function parseCSV(text) {
 // =========================
 function appNameFromPath() {
   let p = window.location.pathname.replace(/\/+$/, "") || "/";
+  const raw = p;
   if (BASE_PATH && p.startsWith(BASE_PATH)) {
     p = p.slice(BASE_PATH.length) || "/";
   }
-  if (p === "/" || p === "/index.html") return null;
-  return p.split("/").filter(Boolean)[0] || null;
+  const result = (p === "/" || p === "/index.html") ? null : p.split("/").filter(Boolean)[0] || null;
+  console.debug("[CloudLink] appNameFromPath", { raw, BASE_PATH, stripped: p, result });
+  return result;
 }
 
 function updateUrlForApp(name) {
   const u = new URL(window.location);
   u.pathname = (BASE_PATH || "") + `/${name}/`;
+  console.debug("[CloudLink] updateUrlForApp", { name, pathname: u.pathname, href: u.href });
   window.history.pushState({ app: name }, "", u);
 }
 
 // =========================
 // PENDING APP (sessionStorage)
 // =========================
-function setPendingApp(name) { try { sessionStorage.setItem(PENDING_APP_KEY, name); } catch {} }
-function getPendingApp() { try { return sessionStorage.getItem(PENDING_APP_KEY); } catch { return null; } }
-function clearPendingApp() { try { sessionStorage.removeItem(PENDING_APP_KEY); } catch {} }
+function setPendingApp(name) { try { console.debug("[CloudLink] setPendingApp", name); sessionStorage.setItem(PENDING_APP_KEY, name); } catch {} }
+function getPendingApp() { try { const v = sessionStorage.getItem(PENDING_APP_KEY); console.debug("[CloudLink] getPendingApp", v); return v; } catch { return null; } }
+function clearPendingApp() { try { console.debug("[CloudLink] clearPendingApp"); sessionStorage.removeItem(PENDING_APP_KEY); } catch {} }
 
 // =========================
 // PUBLIC CATALOG (sin auth)
 // =========================
 async function fetchPublicCSV() {
+  console.debug("[CloudLink] fetchPublicCSV", { PUBLIC_SHEET_ID });
   if (!PUBLIC_SHEET_ID) return [];
   return new Promise(resolve => {
     const callbackName = "_cv" + Math.random().toString(36).slice(2);
     const base = "https://docs.google.com/spreadsheets/d/" + PUBLIC_SHEET_ID + "/gviz/tq";
     const url = base + "?tqx=responseHandler:" + callbackName;
+    console.debug("[CloudLink] JSONP url", url);
 
     window[callbackName] = data => {
       cleanup();
+      console.debug("[CloudLink] JSONP response", data.status);
       if (data.status !== "ok") {
+        console.debug("[CloudLink] JSONP error", data.errors);
         renderStatus("Catálogo público: " + (data.errors?.[0]?.message || "error"));
         resolve([]);
         return;
       }
       const raw = data.table.rows.map(r => r.c.map(cell => cell?.v ?? ""));
+      console.debug("[CloudLink] JSONP raw rows", raw.length);
       if (raw.length < 2) {
         renderStatus("Catálogo público vacío");
         resolve([]);
@@ -571,14 +610,16 @@ async function fetchPublicCSV() {
         }
         return a;
       }).filter(a => a.bundleurl);
+      console.debug("[CloudLink] parsed public apps", apps);
       if (apps.length === 0) renderStatus("Catálogo público vacío o formato incorrecto");
       resolve(apps);
     };
 
     const script = document.createElement("script");
     script.src = url;
-    script.onerror = () => {
+    script.onerror = (ev) => {
       cleanup();
+      console.debug("[CloudLink] JSONP script onerror", ev);
       renderStatus("Error de red al cargar catálogo público");
       resolve([]);
     };
@@ -679,6 +720,7 @@ function appCard(name, icon, desc, onclick) {
 // LOAD BUNDLE FROM DRIVE
 // =========================
 async function loadBundle(fileId) {
+  console.debug("[CloudLink] loadBundle", { fileId });
   document.body.innerHTML = loadingHTML();
 
   try { localStorage.setItem("cv.drive.clientId", CLIENT_ID); } catch {}
@@ -687,24 +729,32 @@ async function loadBundle(fileId) {
     `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
     { headers: { Authorization: "Bearer " + accessToken } }
   );
+  console.debug("[CloudLink] Drive fetch status", res.status);
   const code = await res.text();
+  console.debug("[CloudLink] Drive bundle length", code.length);
 
   const blob = new Blob([code], { type: "text/javascript" });
   const url = URL.createObjectURL(blob);
   const mod = await import(url);
+  console.debug("[CloudLink] module loaded, calling initApp");
   await mod.initApp();
 }
 
 async function loadPublicBundle(name, bundleUrl) {
+  console.debug("[CloudLink] loadPublicBundle", { name, bundleUrl });
   updateUrlForApp(name);
   clearPendingApp();
   document.body.innerHTML = loadingHTML();
 
   const res = await fetch(bundleUrl);
+  console.debug("[CloudLink] public bundle fetch status", res.status);
   const code = await res.text();
+  console.debug("[CloudLink] public bundle length", code.length);
+
   const blob = new Blob([code], { type: "text/javascript" });
   const u = URL.createObjectURL(blob);
   const mod = await import(u);
+  console.debug("[CloudLink] public module loaded, calling initApp");
   await mod.initApp();
 }
 
