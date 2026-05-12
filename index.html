@@ -268,6 +268,44 @@
     #app-launcher[data-theme="light"] #app .app-card-desc {
       color: #6b7280;
     }
+
+    #app-launcher .public-section {
+      margin-top: 12px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding-top: 16px;
+    }
+
+    #app-launcher[data-theme="light"] .public-section {
+      border-top-color: #e5e7eb;
+    }
+
+    #app-launcher .public-section .public-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #9ca3af;
+      margin: 0 0 12px;
+      text-align: center;
+    }
+
+    #app-launcher .login-hint {
+      font-size: 13px;
+      color: #7c3aed;
+      text-align: center;
+      margin: 20px 0 0;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      background: none;
+      border: none;
+      font-family: inherit;
+      display: block;
+      width: 100%;
+    }
+
+    #app-launcher .login-hint:hover {
+      opacity: 0.8;
+    }
   </style>
 
 </head>
@@ -295,9 +333,14 @@ const CLIENT_ID = "67534313330-c6tea2ap05e76i5bh794hamab3pme1n9.apps.googleuserc
 const SCOPES = "https://www.googleapis.com/auth/drive openid profile email";
 
 const CSV_FILE_ID = "16JMnnkNn6v9BD3lSBmyxXz-vStk8FpXfpXRwK2F696Y";
+const PUBLIC_SHEET_ID = "1LJaKK1PDjHhnrTnVsukO0tvzCHsaT_pXZJzm99p27o4";
+
+const PENDING_APP_KEY = "cv.pendingApp";
 
 let tokenClient;
 let accessToken = null;
+let publicApps = [];
+let privateApps = [];
 
 const app = document.getElementById("app");
 const launcher = document.getElementById("app-launcher");
@@ -317,6 +360,10 @@ document.getElementById("themeToggle").onclick = () => {
 // =========================
 window.onload = () => {
 
+  if (!window.google?.accounts?.oauth2) {
+    return showInitError("Google Identity Services no se ha cargado. Recarga la página.");
+  }
+
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID,
     scope: SCOPES,
@@ -334,7 +381,45 @@ window.onload = () => {
   document.getElementById("loginBtn").onclick = () => {
     tokenClient.requestAccessToken();
   };
+
+  // Cargar catálogo público y resolver URL
+  loadPublicCatalog();
+
+  // popstate: navegación atrás/adelante
+  window.addEventListener("popstate", () => {
+    const name = appNameFromPath();
+    if (name) {
+      const pub = publicApps.find(a => a.name === name);
+      if (pub) loadPublicBundle(pub.name, pub.bundleurl);
+    }
+  });
 };
+
+async function loadPublicCatalog() {
+  const apps = await fetchPublicCSV();
+  publicApps = apps;
+
+  const pathApp = appNameFromPath();
+  if (pathApp) {
+    const match = apps.find(a => a.name === pathApp);
+    if (match) {
+      loadPublicBundle(match.name, match.bundleurl);
+      return;
+    }
+    setPendingApp(pathApp);
+    renderStatus("App no encontrada. Inicia sesión para intentar con tu catálogo privado.");
+    return;
+  }
+
+  if (apps.length > 0) {
+    renderPublicAppList(apps);
+  }
+}
+
+function showInitError(msg) {
+  document.getElementById("app").innerHTML =
+    "<p class='app-status app-status--error'>" + msg + "</p>";
+}
 
 // =========================
 // MAIN FLOW
@@ -345,6 +430,7 @@ async function startApp() {
   renderStatus("Obteniendo usuario...");
 
   const user = await getUserInfo();
+  privateApps = [];
 
   try {
     const bundles = await fetchCSV();
@@ -357,15 +443,34 @@ async function startApp() {
       })
     ));
     const accesibles = bundles.filter((_, i) => results[i].status === "fulfilled" && results[i].value.ok);
+    privateApps = accesibles;
 
-    if (accesibles.length === 0) {
+    // Resolver app pendiente del URL
+    const pending = getPendingApp();
+    if (pending) {
+      const match = accesibles.find(b => b.name === pending);
+      if (match) {
+        clearPendingApp();
+        updateUrlForApp(pending);
+        loadBundle(match.fileId);
+        return;
+      }
+      clearPendingApp();
+    }
+
+    if (accesibles.length === 0 && publicApps.length === 0) {
       renderError("No tienes acceso a ninguna aplicación");
       return;
     }
-    renderBundles(accesibles, user);
+
+    renderCombinedBundles(accesibles, publicApps, user);
 
   } catch (err) {
-    renderError("Usuario no registrado en La Alfa");
+    if (publicApps.length > 0) {
+      renderCombinedBundles([], publicApps, user);
+    } else {
+      renderError("Usuario no registrado en La Alfa");
+    }
   }
 }
 
@@ -402,8 +507,109 @@ function parseCSV(text) {
 
   return lines.slice(1).map(line => {
     const [name, fileId, icon, description] = line.split(",");
-    return { name, fileId, icon: icon || "�", description: description || "" };
+    return { name, fileId, icon: icon || "⬡", description: description || "" };
   });
+}
+
+// =========================
+// URL ROUTING
+// =========================
+function appNameFromPath() {
+  const p = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (p === "/" || p === "/index.html") return null;
+  return p.split("/").filter(Boolean)[0] || null;
+}
+
+function updateUrlForApp(name) {
+  const u = new URL(window.location);
+  u.pathname = `/${name}/`;
+  window.history.pushState({ app: name }, "", u);
+}
+
+// =========================
+// PENDING APP (sessionStorage)
+// =========================
+function setPendingApp(name) { try { sessionStorage.setItem(PENDING_APP_KEY, name); } catch {} }
+function getPendingApp() { try { return sessionStorage.getItem(PENDING_APP_KEY); } catch { return null; } }
+function clearPendingApp() { try { sessionStorage.removeItem(PENDING_APP_KEY); } catch {} }
+
+// =========================
+// PUBLIC CATALOG (sin auth)
+// =========================
+async function fetchPublicCSV() {
+  if (!PUBLIC_SHEET_ID) return [];
+  return new Promise(resolve => {
+    const callbackName = "_cv" + Math.random().toString(36).slice(2);
+    const base = "https://docs.google.com/spreadsheets/d/" + PUBLIC_SHEET_ID + "/gviz/tq";
+    const url = base + "?tqx=responseHandler:" + callbackName;
+
+    window[callbackName] = data => {
+      cleanup();
+      if (data.status !== "ok") {
+        renderStatus("Catálogo público: " + (data.errors?.[0]?.message || "error"));
+        resolve([]);
+        return;
+      }
+      const raw = data.table.rows.map(r => r.c.map(cell => cell?.v ?? ""));
+      if (raw.length < 2) {
+        renderStatus("Catálogo público vacío");
+        resolve([]);
+        return;
+      }
+      const headers = raw[0].map(v => String(v).toLowerCase());
+      const apps = raw.slice(1).map(row => {
+        const o = {};
+        headers.forEach((h, i) => { o[h] = row[i] || ""; });
+        return o;
+      }).filter(a => a.name).map(a => {
+        if (a.fileid && !a.bundleurl) {
+          a.bundleurl = "https://drive.google.com/uc?export=download&id=" + a.fileid;
+        }
+        return a;
+      }).filter(a => a.bundleurl);
+      if (apps.length === 0) renderStatus("Catálogo público vacío o formato incorrecto");
+      resolve(apps);
+    };
+
+    const script = document.createElement("script");
+    script.src = url;
+    script.onerror = () => {
+      cleanup();
+      renderStatus("Error de red al cargar catálogo público");
+      resolve([]);
+    };
+    document.head.appendChild(script);
+
+    function cleanup() {
+      delete window[callbackName];
+      script.remove();
+    }
+  });
+}
+
+function parsePublicCSV(text) {
+  const lines = text.trim().split("\n");
+  if (lines.length < 2) return [];
+  const h = lines[0].split(",").map(s => s.trim().toLowerCase());
+  return lines.slice(1).map(line => {
+    const vals = parseCSVLine(line);
+    const o = {};
+    h.forEach((k, i) => { o[k] = vals[i] || ""; });
+    return o;
+  }).filter(a => a.name && a.bundleurl);
+}
+
+function parseCSVLine(line) {
+  const r = [];
+  let cur = "", q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { q = !q; }
+    else if (c === "," && !q) { r.push(cur); cur = ""; }
+    else { cur += c; }
+  }
+  r.push(cur);
+  return r;
 }
 
 // =========================
@@ -417,53 +623,90 @@ function renderError(msg) {
   app.innerHTML = "<p class='app-status app-status--error'>" + msg + "</p>";
 }
 
-function renderBundles(bundles, user) {
+function renderCombinedBundles(privateList, publicList, user) {
   const welcome = user ? "<p class='app-welcome'>Bienvenido, " + (user.name || user.email || "Usuario") + "</p>" : "";
-  app.innerHTML = welcome + "<p class='app-list-title'>Tus aplicaciones</p>";
+  let html = welcome;
 
-  bundles.forEach(b => {
-    const card = document.createElement("div");
-    card.className = "app-card";
+  if (privateList.length > 0) {
+    html += "<p class='app-list-title'>Tus aplicaciones</p>";
+  }
 
-    card.innerHTML =
-      "<div class='app-card-icon'>" + (b.icon || "�") + "</div>" +
-      "<div class='app-card-info'>" +
-        "<div class='app-card-name'>" + b.name + "</div>" +
-        "<div class='app-card-desc'>" + (b.description || "") + "</div>" +
-      "</div>";
+  app.innerHTML = html;
 
-    card.onclick = () => loadBundle(b.fileId);
-
+  privateList.forEach(b => {
+    const card = appCard(b.name, b.icon, b.description, () => { updateUrlForApp(b.name); loadBundle(b.fileId); });
     app.appendChild(card);
   });
+
+  if (publicList.length > 0) {
+    const section = document.createElement("div");
+    section.className = "public-section";
+    section.innerHTML = "<p class='public-title'>Apps públicas</p>";
+    publicList.forEach(b => {
+      const card = appCard(b.name, b.icon || b.icono, b.description, () => loadPublicBundle(b.name, b.bundleurl));
+      section.appendChild(card);
+    });
+    app.appendChild(section);
+  }
+}
+
+function renderPublicAppList(publicList) {
+  if (publicList.length === 0) return;
+  app.innerHTML = "<p class='app-list-title'>Apps públicas</p>";
+  publicList.forEach(b => {
+    app.appendChild(appCard(b.name, b.icon || b.icono, b.description, () => loadPublicBundle(b.name, b.bundleurl)));
+  });
+}
+
+function appCard(name, icon, desc, onclick) {
+  const card = document.createElement("div");
+  card.className = "app-card";
+  card.innerHTML =
+    "<div class='app-card-icon'>" + (icon || "⬡") + "</div>" +
+    "<div class='app-card-info'>" +
+      "<div class='app-card-name'>" + name + "</div>" +
+      "<div class='app-card-desc'>" + (desc || "") + "</div>" +
+    "</div>";
+  card.onclick = onclick;
+  return card;
 }
 
 // =========================
 // LOAD BUNDLE FROM DRIVE
 // =========================
 async function loadBundle(fileId) {
-  const isDark = launcher.getAttribute("data-theme") !== "light";
-  document.body.innerHTML = "<div style='display:flex;align-items:center;justify-content:center;min-height:100vh;background:" + (isDark ? "#0f0f1a" : "#f5f7fa") + ";margin:0'><p style='font-family:system-ui;color:" + (isDark ? "#9ca3af" : "#6b7280") + "'>Cargando...</p></div>";
+  document.body.innerHTML = loadingHTML();
 
-  // 0. Propagar Client ID a CloudVault para que la reconexión OAuth
-  //    funcione cuando caduque el token del launcher. CloudVault lee
-  //    localStorage.getItem("cv.drive.clientId") en su constructor.
   try { localStorage.setItem("cv.drive.clientId", CLIENT_ID); } catch {}
 
-  // 1. Descargar el bundle de Drive
   const res = await fetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
     { headers: { Authorization: "Bearer " + accessToken } }
   );
   const code = await res.text();
 
-  // 2. Cargarlo como módulo via Blob URL — no como <script> clásico
   const blob = new Blob([code], { type: "text/javascript" });
   const url = URL.createObjectURL(blob);
   const mod = await import(url);
-
-  // 3. Llamar a initApp exportada
   await mod.initApp();
+}
+
+async function loadPublicBundle(name, bundleUrl) {
+  updateUrlForApp(name);
+  clearPendingApp();
+  document.body.innerHTML = loadingHTML();
+
+  const res = await fetch(bundleUrl);
+  const code = await res.text();
+  const blob = new Blob([code], { type: "text/javascript" });
+  const u = URL.createObjectURL(blob);
+  const mod = await import(u);
+  await mod.initApp();
+}
+
+function loadingHTML() {
+  const isDark = launcher.getAttribute("data-theme") !== "light";
+  return "<div style='display:flex;align-items:center;justify-content:center;min-height:100vh;background:" + (isDark ? "#0f0f1a" : "#f5f7fa") + ";margin:0'><p style='font-family:system-ui;color:" + (isDark ? "#9ca3af" : "#6b7280") + "'>Cargando...</p></div>";
 }
 
 </script>
