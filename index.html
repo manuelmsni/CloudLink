@@ -334,6 +334,7 @@ const SCOPES = "https://www.googleapis.com/auth/drive openid profile email";
 
 const CSV_FILE_ID = "16JMnnkNn6v9BD3lSBmyxXz-vStk8FpXfpXRwK2F696Y";
 const PUBLIC_SHEET_ID = "1LJaKK1PDjHhnrTnVsukO0tvzCHsaT_pXZJzm99p27o4";
+const BASE_PATH = "/CloudLink";
 
 const PENDING_APP_KEY = "cv.pendingApp";
 
@@ -515,14 +516,17 @@ function parseCSV(text) {
 // URL ROUTING
 // =========================
 function appNameFromPath() {
-  const p = window.location.pathname.replace(/\/+$/, "") || "/";
+  let p = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (BASE_PATH && p.startsWith(BASE_PATH)) {
+    p = p.slice(BASE_PATH.length) || "/";
+  }
   if (p === "/" || p === "/index.html") return null;
   return p.split("/").filter(Boolean)[0] || null;
 }
 
 function updateUrlForApp(name) {
   const u = new URL(window.location);
-  u.pathname = `/${name}/`;
+  u.pathname = (BASE_PATH || "") + `/${name}/`;
   window.history.pushState({ app: name }, "", u);
 }
 
