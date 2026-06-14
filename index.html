@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>CloudLink</title>
 
-  <!-- Google Identity Services -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
   <script type="importmap">
@@ -354,18 +353,12 @@ const app = document.getElementById("app");
 const launcher = document.getElementById("app-launcher");
 const loginSection = document.getElementById("login-section");
 
-// =========================
-// THEME TOGGLE
-// =========================
 document.getElementById("themeToggle").onclick = () => {
   const isDark = launcher.getAttribute("data-theme") !== "light";
   launcher.setAttribute("data-theme", isDark ? "light" : "dark");
   document.getElementById("themeToggle").textContent = isDark ? "🌙" : "☀️";
 };
 
-// =========================
-// INIT
-// =========================
 window.onload = () => {
   console.debug("[CloudLink] window.onload", {
     pathname: window.location.pathname,
@@ -444,9 +437,6 @@ function showInitError(msg) {
     "<p class='app-status app-status--error'>" + msg + "</p>";
 }
 
-// =========================
-// MAIN FLOW
-// =========================
 async function startApp() {
   console.debug("[CloudLink] startApp");
   loginSection.style.display = "none";
@@ -503,9 +493,6 @@ async function startApp() {
   }
 }
 
-// =========================
-// USER INFO
-// =========================
 async function getUserInfo() {
   const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
     headers: { Authorization: "Bearer " + accessToken }
@@ -513,9 +500,6 @@ async function getUserInfo() {
   return await res.json();
 }
 
-// =========================
-// FETCH CSV FROM DRIVE
-// =========================
 async function fetchCSV() {
   console.debug("[CloudLink] fetchCSV");
   const res = await fetch(
@@ -543,9 +527,6 @@ function parseCSV(text) {
   });
 }
 
-// =========================
-// URL ROUTING
-// =========================
 function appNameFromPath() {
   var hash = window.location.hash.replace(/^#!?/, "").replace(/\/+$/, "");
   if (hash) {
@@ -572,16 +553,10 @@ function updateUrlForApp(name) {
   window.history.pushState({ app: name }, "", u);
 }
 
-// =========================
-// PENDING APP (sessionStorage)
-// =========================
 function setPendingApp(name) { try { console.debug("[CloudLink] setPendingApp", name); sessionStorage.setItem(PENDING_APP_KEY, name); } catch {} }
 function getPendingApp() { try { const v = sessionStorage.getItem(PENDING_APP_KEY); console.debug("[CloudLink] getPendingApp", v); return v; } catch { return null; } }
 function clearPendingApp() { try { console.debug("[CloudLink] clearPendingApp"); sessionStorage.removeItem(PENDING_APP_KEY); } catch {} }
 
-// =========================
-// PUBLIC CATALOG (sin auth)
-// =========================
 async function fetchPublicCSV() {
   console.debug("[CloudLink] fetchPublicCSV", { PUBLIC_SHEET_ID });
   if (!PUBLIC_SHEET_ID) return [];
@@ -665,9 +640,6 @@ function parseCSVLine(line) {
   return r;
 }
 
-// =========================
-// UI
-// =========================
 function renderStatus(msg) {
   app.innerHTML = "<p class='app-status'>" + msg + "</p>";
 }
@@ -724,9 +696,6 @@ function appCard(name, icon, desc, onclick) {
   return card;
 }
 
-// =========================
-// LOAD BUNDLE FROM DRIVE
-// =========================
 async function loadBundle(fileId) {
   console.debug("[CloudLink] loadBundle", { fileId });
   document.body.innerHTML = loadingHTML();
