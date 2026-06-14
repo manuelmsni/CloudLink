@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>CloudLink</title>
 
   <!-- Google Identity Services -->
@@ -21,15 +22,20 @@
   </script>
 
   <style>
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+
     #app-launcher {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       text-align: center;
       min-height: 100vh;
+      min-height: 100dvh;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       margin: 0;
+      padding: 16px;
       background: linear-gradient(135deg, #0f0f1a 0%, #1a1b2e 100%);
       color: #e5e7eb;
       -webkit-font-smoothing: antialiased;
@@ -44,7 +50,7 @@
     #app-launcher .launcher-card {
       background: #23242c;
       border-radius: 16px;
-      padding: 48px 40px 40px;
+      padding: clamp(24px, 6vw, 48px) clamp(16px, 5vw, 40px) clamp(24px, 5vw, 40px);
       box-shadow: 0 8px 32px rgba(0,0,0,0.4);
       max-width: 480px;
       width: 100%;
@@ -205,6 +211,7 @@
       border: 1px solid rgba(255,255,255,0.08);
       border-radius: 12px;
       cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
       transition: background 0.12s, border-color 0.12s, transform 0.08s;
     }
 
@@ -309,7 +316,7 @@
   </style>
 
 </head>
-<body style="margin:0">
+<body style="margin:0;touch-action:manipulation">
 
   <div id="app-launcher" data-theme="dark">
     <div class="launcher-card">
@@ -761,7 +768,7 @@ async function loadPublicBundle(name, bundleUrl) {
 
 function loadingHTML() {
   const isDark = launcher.getAttribute("data-theme") !== "light";
-  return "<div style='display:flex;align-items:center;justify-content:center;min-height:100vh;background:" + (isDark ? "#0f0f1a" : "#f5f7fa") + ";margin:0'><p style='font-family:system-ui;color:" + (isDark ? "#9ca3af" : "#6b7280") + "'>Cargando...</p></div>";
+  return "<div style='display:flex;align-items:center;justify-content:center;min-height:100vh;min-height:100dvh;background:" + (isDark ? "#0f0f1a" : "#f5f7fa") + ";margin:0;padding:16px'><p style='font-family:system-ui;color:" + (isDark ? "#9ca3af" : "#6b7280") + "'>Cargando...</p></div>";
 }
 
 </script>
