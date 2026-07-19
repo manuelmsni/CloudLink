@@ -595,6 +595,11 @@ function extractDriveId(url) {
   return null;
 }
 
+// URL de descarga pública de un archivo de Drive (sin sesión).
+function publicDriveUrl(id) {
+  return "https://drive.google.com/uc?export=download&id=" + id;
+}
+
 function appNameFromPath() {
   var hash = window.location.hash.replace(/^#!?/, "").replace(/\/+$/, "");
   if (hash) {
@@ -656,11 +661,12 @@ async function fetchPublicCSV() {
         headers.forEach((h, i) => { o[h] = row[i] || ""; });
         return o;
       }).filter(a => a.name).map(a => {
-        if (a.fileid && !a.bundleurl) {
-          a.bundleurl = "https://drive.google.com/uc?export=download&id=" + a.fileid;
-        }
+        // Autodetecta el origen igual que en la hoja privada: gid, enlace de Drive o URL.
+        const rawSrc = a.bundleurl || a.fileid || a.url || a.source || a.gid || a.driveid || "";
+        a.source = resolveBundleSource(rawSrc);
+        a.bundleurl = rawSrc; // valor canónico; loadPublicBundle lo resuelve al cargar
         return a;
-      }).filter(a => a.bundleurl);
+      }).filter(a => a.source);
       console.debug("[CloudLink] parsed public apps", apps);
       if (apps.length === 0) renderStatus("Catálogo público vacío o formato incorrecto");
       resolve(apps);
@@ -824,9 +830,29 @@ async function loadPublicBundle(name, bundleUrl) {
   clearPendingApp();
   document.body.innerHTML = loadingHTML();
 
-  const res = await fetch(bundleUrl);
-  console.debug("[CloudLink] public bundle fetch status", res.status);
-  const code = await res.text();
+  const source = resolveBundleSource(bundleUrl);
+  console.debug("[CloudLink] public source resolved", source);
+
+  let code;
+  if (source && source.type === "drive") {
+    if (accessToken) {
+      // Con sesión: API de Drive autenticada (evita CORS y sirve para archivos privados).
+      code = await downloadBundleCode(source);
+    } else {
+      // Sin sesión: descarga pública del archivo de Drive.
+      const res = await fetch(publicDriveUrl(source.id));
+      console.debug("[CloudLink] public Drive fetch status", res.status);
+      if (!res.ok) throw new Error("PUBLIC_DRIVE_" + res.status);
+      code = await res.text();
+    }
+  } else {
+    // URL/enlace directo.
+    const target = source ? source.url : bundleUrl;
+    const res = await fetch(target);
+    console.debug("[CloudLink] public bundle fetch status", res.status);
+    if (!res.ok) throw new Error("PUBLIC_URL_" + res.status);
+    code = await res.text();
+  }
   console.debug("[CloudLink] public bundle length", code.length);
 
   const blob = new Blob([code], { type: "text/javascript" });
