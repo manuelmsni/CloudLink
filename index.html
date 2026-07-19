@@ -452,12 +452,17 @@ async function startApp() {
     console.debug("[CloudLink] CSV bundles", bundles);
 
     renderStatus("Verificando acceso...");
-    const results = await Promise.allSettled(bundles.map(b =>
-      fetch("https://www.googleapis.com/drive/v3/files/" + b.fileId + "?fields=id", {
-        headers: { Authorization: "Bearer " + accessToken }
-      })
-    ));
-    const accesibles = bundles.filter((_, i) => results[i].status === "fulfilled" && results[i].value.ok);
+    const results = await Promise.allSettled(bundles.map(b => {
+      // Solo verificamos permisos vía API para orígenes de Drive.
+      if (b.source && b.source.type === "drive") {
+        return fetch("https://www.googleapis.com/drive/v3/files/" + b.source.id + "?fields=id", {
+          headers: { Authorization: "Bearer " + accessToken }
+        }).then(r => r.ok);
+      }
+      // URLs directas: no se pueden pre-verificar (CORS) -> se asumen accesibles.
+      return Promise.resolve(true);
+    }));
+    const accesibles = bundles.filter((_, i) => results[i].status === "fulfilled" && results[i].value === true);
     privateApps = accesibles;
     console.debug("[CloudLink] accessible bundles", accesibles.length, "/", bundles.length);
 
@@ -469,7 +474,7 @@ async function startApp() {
         console.debug("[CloudLink] resolving pending app", pending);
         clearPendingApp();
         updateUrlForApp(pending);
-        loadBundle(match.fileId);
+        loadBundle(match);
         return;
       }
       console.debug("[CloudLink] pending app not in accessible list, clearing");
@@ -519,12 +524,75 @@ async function fetchCSV() {
 }
 
 function parseCSV(text) {
-  const lines = text.trim().split("\n");
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+
+  // Cabecera: detecta columnas por nombre; si no las encuentra, cae a posiciones.
+  const header = parseCSVLine(lines[0]).map(s => s.trim().toLowerCase());
+  const findCol = (aliases, fallback) => {
+    for (const a of aliases) {
+      const i = header.indexOf(a);
+      if (i !== -1) return i;
+    }
+    return fallback;
+  };
+
+  const iName   = findCol(["name", "nombre"], 0);
+  // La columna de origen puede llamarse de muchas formas y contener un ID de Drive
+  // o una URL/enlace directo. Se acepta un abanico amplio de alias.
+  const iSource = findCol(["source", "origen", "bundle", "bundleurl", "url", "fileid", "gid", "driveid", "file", "id"], 1);
+  const iIcon   = findCol(["icon", "icono"], 2);
+  const iDesc   = findCol(["description", "descripcion", "descripción", "desc"], 3);
 
   return lines.slice(1).map(line => {
-    const [name, fileId, icon, description] = line.split(",");
-    return { name, fileId, icon: icon || "⬡", description: description || "" };
-  });
+    const cols = parseCSVLine(line);
+    const name = (cols[iName] || "").trim();
+    const sourceRaw = (cols[iSource] || "").trim();
+    const icon = (cols[iIcon] || "").trim() || "⬡";
+    const description = (cols[iDesc] || "").trim();
+    const source = resolveBundleSource(sourceRaw);
+    return {
+      name,
+      sourceRaw,
+      source,
+      // fileId se conserva por compatibilidad (útil si el origen es un ID/enlace de Drive).
+      fileId: source && source.type === "drive" ? source.id : "",
+      icon,
+      description
+    };
+  }).filter(b => b.name && b.source);
+}
+
+// Detecta qué tipo de dato hay en la columna de origen y cómo debe descargarse.
+//  - "drive": ID de Drive o enlace de Drive -> API de Drive autenticada
+//  - "url":   cualquier otra URL/enlace directo -> fetch normal
+function resolveBundleSource(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return null;
+
+  // ¿Es una URL completa?
+  if (/^https?:\/\//i.test(value)) {
+    const driveId = extractDriveId(value);
+    if (driveId) return { type: "drive", id: driveId, raw: value };
+    return { type: "url", url: value, raw: value };
+  }
+
+  // Token "pelado": lo tratamos como ID de Drive (gid).
+  if (/^[A-Za-z0-9_-]{16,}$/.test(value)) {
+    return { type: "drive", id: value, raw: value };
+  }
+
+  // Cualquier otra cosa (p. ej. ruta relativa) -> se intenta como URL.
+  return { type: "url", url: value, raw: value };
+}
+
+// Extrae el ID de Drive de las formas habituales de enlace.
+function extractDriveId(url) {
+  let m = url.match(/\/d\/([A-Za-z0-9_-]{16,})/);          // .../file/d/ID/view, .../d/ID/...
+  if (m) return m[1];
+  m = url.match(/[?&]id=([A-Za-z0-9_-]{16,})/);            // uc?export=download&id=ID, open?id=ID
+  if (m) return m[1];
+  return null;
 }
 
 function appNameFromPath() {
@@ -659,7 +727,7 @@ function renderCombinedBundles(privateList, publicList, user) {
   app.innerHTML = html;
 
   privateList.forEach(b => {
-    const card = appCard(b.name, b.icon, b.description, () => { updateUrlForApp(b.name); loadBundle(b.fileId); });
+    const card = appCard(b.name, b.icon, b.description, () => { updateUrlForApp(b.name); loadBundle(b); });
     app.appendChild(card);
   });
 
@@ -696,25 +764,58 @@ function appCard(name, icon, desc, onclick) {
   return card;
 }
 
-async function loadBundle(fileId) {
-  console.debug("[CloudLink] loadBundle", { fileId });
+async function loadBundle(bundle) {
+  // Acepta un objeto bundle, un origen ya resuelto, o un string (ID/URL) por compatibilidad.
+  let source;
+  if (typeof bundle === "string") {
+    source = resolveBundleSource(bundle);
+  } else if (bundle && bundle.type) {
+    source = bundle;
+  } else if (bundle) {
+    source = bundle.source || resolveBundleSource(bundle.sourceRaw || bundle.fileId);
+  }
+
+  console.debug("[CloudLink] loadBundle", source);
   document.body.innerHTML = loadingHTML();
 
   try { localStorage.setItem("cv.drive.clientId", CLIENT_ID); } catch {}
 
-  const res = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-    { headers: { Authorization: "Bearer " + accessToken } }
-  );
-  console.debug("[CloudLink] Drive fetch status", res.status);
-  const code = await res.text();
-  console.debug("[CloudLink] Drive bundle length", code.length);
+  const code = await downloadBundleCode(source);
+  console.debug("[CloudLink] bundle length", code.length);
 
   const blob = new Blob([code], { type: "text/javascript" });
   const url = URL.createObjectURL(blob);
   const mod = await import(url);
   console.debug("[CloudLink] module loaded, calling initApp");
   await mod.initApp();
+}
+
+// Descarga el código del bundle según el tipo de origen autodetectado.
+async function downloadBundleCode(source) {
+  if (!source) throw new Error("NO_SOURCE");
+
+  if (source.type === "drive") {
+    // ID/enlace de Drive -> API de Drive autenticada.
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${source.id}?alt=media`,
+      { headers: { Authorization: "Bearer " + accessToken } }
+    );
+    console.debug("[CloudLink] Drive fetch status", res.status);
+    if (!res.ok) throw new Error("DRIVE_FETCH_" + res.status);
+    return res.text();
+  }
+
+  // URL/enlace directo -> fetch normal. Solo se adjunta el token para googleapis.com.
+  let isGoogleApi = false;
+  try {
+    isGoogleApi = /(^|\.)googleapis\.com$/i.test(new URL(source.url, window.location.href).hostname);
+  } catch {}
+  const res = await fetch(source.url, isGoogleApi
+    ? { headers: { Authorization: "Bearer " + accessToken } }
+    : {});
+  console.debug("[CloudLink] URL fetch status", res.status);
+  if (!res.ok) throw new Error("URL_FETCH_" + res.status);
+  return res.text();
 }
 
 async function loadPublicBundle(name, bundleUrl) {
