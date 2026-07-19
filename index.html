@@ -340,6 +340,7 @@ const SCOPES = "https://www.googleapis.com/auth/drive https://www.googleapis.com
 
 const CSV_FILE_ID = "16JMnnkNn6v9BD3lSBmyxXz-vStk8FpXfpXRwK2F696Y";
 const PUBLIC_SHEET_ID = "1LJaKK1PDjHhnrTnVsukO0tvzCHsaT_pXZJzm99p27o4";
+const DRIVE_API_KEY = "AIzaSyDSImblYc3KTughQE8SSJfLJvYReRvBHA4";
 const BASE_PATH = "/CloudLink";
 
 const PENDING_APP_KEY = "cv.pendingApp";
@@ -595,8 +596,13 @@ function extractDriveId(url) {
   return null;
 }
 
-// URL de descarga pública de un archivo de Drive (sin sesión).
+// URL de descarga de un archivo PÚBLICO de Drive sin sesión.
+// Con API key usamos la Drive API (googleapis.com envía cabeceras CORS -> el fetch funciona).
+// Sin API key, caemos al endpoint clásico (que suele fallar por CORS desde el navegador).
 function publicDriveUrl(id) {
+  if (DRIVE_API_KEY) {
+    return "https://www.googleapis.com/drive/v3/files/" + id + "?alt=media&key=" + DRIVE_API_KEY;
+  }
   return "https://drive.google.com/uc?export=download&id=" + id;
 }
 
@@ -839,7 +845,10 @@ async function loadPublicBundle(name, bundleUrl) {
       // Con sesión: API de Drive autenticada (evita CORS y sirve para archivos privados).
       code = await downloadBundleCode(source);
     } else {
-      // Sin sesión: descarga pública del archivo de Drive.
+      // Sin sesión: descarga del archivo PÚBLICO de Drive vía API key (CORS-safe).
+      if (!DRIVE_API_KEY) {
+        console.warn("[CloudLink] DRIVE_API_KEY vacía: la descarga pública de Drive fallará por CORS.");
+      }
       const res = await fetch(publicDriveUrl(source.id));
       console.debug("[CloudLink] public Drive fetch status", res.status);
       if (!res.ok) throw new Error("PUBLIC_DRIVE_" + res.status);
